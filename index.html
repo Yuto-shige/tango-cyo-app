@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#121212">
+  <title>単語仕分けマスター</title>
+  <style>
+    :root { --bg: #121212; --surface: #1e1e1e; --border: #333; --text: #eee; --sub: #aaa; --accent: #2563eb; --ok: #16a34a; --ng: #dc2626; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; background: var(--bg); color: var(--text); }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    .row:last-child { margin-bottom: 0; }
+    label { font-size: 13px; color: var(--sub); }
+    input[type="text"], input[type="password"], input[type="number"], select { background: #2a2a2a; color: var(--text); border: 1px solid #444; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
+    button { padding: 7px 13px; font-size: 13px; cursor: pointer; border: none; border-radius: 6px; background: #333; color: #fff; transition: background 0.15s; }
+    button:hover { background: #444; }
+    button.primary { background: var(--accent); }
+    button.primary:hover { background: #1d4ed8; }
+    button.danger { background: #7f1d1d; }
+    button.danger:hover { background: #991b1b; }
+    button.active { outline: 2px solid #93c5fd; background: var(--accent); }
+    button.dirty { background: #1d4ed8; }
+
+    .stats { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--sub); margin-bottom: 10px; }
+    .badge { padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: bold; }
+    .b-ok { background: #14532d; color: #86efac; }
+    .b-ng { background: #7f1d1d; color: #fca5a5; }
+    .b-un { background: #333; color: #ddd; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 48px 24px; min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; cursor: pointer; user-select: none; margin-bottom: 14px; position: relative; touch-action: pan-y; will-change: transform; }
+    .card.swipe-ng { border-color: var(--ng); box-shadow: 0 0 16px rgba(220, 38, 38, 0.35); }
+    .card.swipe-ok { border-color: var(--ok); box-shadow: 0 0 16px rgba(22, 163, 74, 0.35); }
+    .card-status { position: absolute; top: 12px; right: 14px; font-size: 12px; }
+    .swipe-indicator { position: absolute; top: 12px; left: 14px; font-size: 13px; font-weight: bold; opacity: 0; transition: opacity 0.1s; pointer-events: none; }
+    .word { font-size: 38px; font-weight: bold; margin-bottom: 18px; word-break: break-word; }
+    .meaning { font-size: 22px; color: #93c5fd; min-height: 32px; word-break: break-word; }
+    .hidden { visibility: hidden; }
+    .retry-wrap { margin-top: 18px; }
+    .retry-btn { background: #b91c1c; padding: 10px 20px; font-size: 15px; font-weight: bold; }
+    .retry-btn:hover { background: #991b1b; }
+
+    .actions { display: flex; gap: 10px; justify-content: center; margin-bottom: 12px; }
+    .btn-ng { background: var(--ng); padding: 12px 26px; font-size: 16px; font-weight: bold; }
+    .btn-ng:hover { background: #b91c1c; }
+    .btn-ok { background: var(--ok); padding: 12px 26px; font-size: 16px; font-weight: bold; }
+    .btn-ok:hover { background: #15803d; }
+    .btn-undo { background: #444; padding: 12px 18px; font-size: 14px; }
+
+    .hints { text-align: center; font-size: 12px; color: #888; }
+    .sp-only { display: none; }
+    details summary { cursor: pointer; font-size: 13px; color: #93c5fd; user-select: none; }
+    .sub-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .sub-chip { display: inline-flex; align-items: center; gap: 6px; background: #2a2a2a; border: 1px solid #444; padding: 4px 10px; border-radius: 99px; font-size: 13px; cursor: pointer; }
+    .sub-chip.selected { background: var(--accent); border-color: #93c5fd; }
+    .sub-chip span.edit { font-size: 11px; opacity: 0.75; }
+
+    /* スマホ用折りたたみバー（PCでは完全に非表示） */
+    .mobile-menu-bar { display: none; }
+
+    /* 同期設定モーダル・トースト */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center; padding: 16px; }
+    .modal-backdrop.open { display: flex; }
+    .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; }
+    .modal-box h3 { margin: 0 0 12px 0; font-size: 16px; }
+    .modal-field { margin-bottom: 10px; }
+    .modal-field label { display: block; margin-bottom: 4px; }
+    .modal-field input { width: 100%; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #2a2a2a; color: #fff; border: 1px solid #555; padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 1100; opacity: 0; pointer-events: none; transition: opacity 0.2s; white-space: nowrap; }
+    .toast.show { opacity: 1; }
+
+    /* ===== スマホ専用レイアウト（640px以下のみ適用・PC版には一切影響なし） ===== */
+    @media (max-width: 640px) {
+      body { margin: 10px auto; padding: 0 10px 24px; overflow-x: hidden; }
+      .panel { padding: 12px; margin-bottom: 10px; }
+
+      .mobile-menu-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+      }
+      .mobile-menu-toggle {
+        flex: 1;
+        text-align: left;
+        background: #2a2a2a;
+        padding: 8px 10px;
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mobile-menu-container { display: none; }
+      .mobile-menu-container.open { display: block; }
+
+      .card {
+        min-height: 320px;
+        padding: 36px 18px;
+        margin-bottom: 12px;
+      }
+      .word { font-size: 32px; margin-bottom: 16px; }
+      .meaning { font-size: 20px; }
+
+      .actions .btn-ng,
+      .actions .btn-ok { display: none; }
+      .actions .btn-undo {
+        width: 100%;
+        padding: 14px 18px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+
+      .pc-only { display: none; }
+      .sp-only { display: inline; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- スマホ用折りたたみメニューバー（PCでは非表示） -->
+  <div class="mobile-menu-bar">
+    <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileMenu()">▼ メニュー</button>
+    <button id="spPushBtn" onclick="pushToGist()">☁保存</button>
+    <button id="spPullBtn" onclick="pullFromGist(true)">☁読込</button>
+    <button onclick="openSyncModal()" title="Gist同期設定">⚙</button>
+  </div>
+
+  <!-- 単語帳・サブグループパネル（スマホ時は折りたたみ対象、PCでは常にそのまま表示） -->
+  <div id="mobileMenuContainer" class="mobile-menu-container">
+    <!-- ① CSV取り込み・データ管理 -->
+    <div class="panel">
+      <div class="row">
+        <label>単語帳:</label>
+        <select id="deckSelect" onchange="selectDeck(this.value)"></select>
+        <button class="danger" onclick="deleteCurrentDeck()">削除</button>
+        <span style="flex:1"></span>
+        <button id="pcPushBtn" onclick="pushToGist()">☁保存</button>
+        <button id="pcPullBtn" onclick="pullFromGist(true)">☁読込</button>
+        <button onclick="openSyncModal()" title="Gist同期設定">⚙</button>
+        <button onclick="exportBackup()">JSON保存</button>
+        <button onclick="document.getElementById('backupFile').click()">JSON復元</button>
+        <input type="file" id="backupFile" accept=".json" style="display:none" onchange="importBackup(event)">
+      </div>
+
+      <details id="importDetails">
+        <summary>＋ 新しいCSVを取り込む</summary>
+        <div class="row" style="margin-top:10px;">
+          <input type="text" id="deckName" placeholder="単語帳の名前（例: TOEFL Rank1）" style="flex:1; min-width:180px;">
+          <select id="encodingSelect">
+            <option value="UTF-8">UTF-8</option>
+            <option value="Shift-JIS">Shift-JIS (Excel等)</option>
+          </select>
+          <input type="file" id="csvFile" accept=".csv">
+          <button class="primary" onclick="importCSV()">取り込み</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- ④ 名前付きサブグループ管理 -->
+    <div class="panel" id="subgroupPanel" style="display:none;">
+      <div class="row">
+        <label>学習範囲:</label>
+        <div class="sub-list" id="scopeChips"></div>
+      </div>
+      <details style="margin-top:8px;">
+        <summary>＋ サブグループに分割・編集</summary>
+        <div class="row" style="margin-top:10px;">
+          <label>ランダムに</label>
+          <input type="number" id="splitCount" value="4" min="2" max="50" style="width:65px;">
+          <label>分割 ／ 名前:</label>
+          <input type="text" id="splitPrefix" value="Set" style="width:120px;">
+          <button class="primary" onclick="createRandomSubgroups()">サブグループ生成</button>
+          <button class="danger" onclick="clearSubgroups()">全サブグループ解除</button>
+        </div>
+        <div style="font-size:12px; color:#888; margin-top:4px;">
+          ※サブグループ内での状態は全体と自動同期されます。チップの✎で名前変更できます。
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ③ 学習モード制御 -->
+  <div class="panel" id="studyPanel" style="display:none;">
+    <div class="row">
+      <button id="btn-unclassified" onclick="startSession('unclassified')">未分類をランダム</button>
+      <button id="btn-ng" onclick="startSession('ng')">出来ないを一周</button>
+      <button id="btn-all" onclick="startSession('all')">全問ランダム</button>
+      <span style="flex:1"></span>
+      <button class="danger" onclick="resetScopeLabels()">この範囲を全て未分類に戻す</button>
+    </div>
+
+    <div class="stats" id="statsBar"></div>
+
+    <div class="card" id="flashcard" onclick="handleCardClick()">
+      <div class="swipe-indicator" id="swipeIndicator"></div>
+      <div class="card-status" id="cardStatus"></div>
+      <div class="word" id="word">-</div>
+      <div class="meaning hidden" id="meaning">-</div>
+      <div class="retry-wrap" id="retryWrap"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-ng" onclick="mark('ng')">← 出来ない</button>
+      <button class="btn-undo" onclick="undo()">↩ 戻る <span class="pc-only">(Ctrl)</span></button>
+      <button class="btn-ok" onclick="mark('ok')">出来る →</button>
+    </div>
+
+    <div class="hints">
+      <span class="pc-only">キーボード: <b>Space / ↑ / ↓</b> 裏返す ／ <b>←</b> 出来ない ／ <b>→</b> 出来る ／ <b>Ctrl</b> 1つ戻る<br></span>
+      <span class="sp-only">操作: <b>タップ</b> 裏返す ／ <b>← 左スワイプ</b> 出来ない ／ <b>右スワイプ →</b> 出来る<br></span>
+      ※一度「出来ない」になった単語は、リセットするまで永続的に「出来ない」のままロックされます。
+    </div>
+  </div>
+
+  <!-- GitHub Gist 同期設定モーダル -->
+  <div class="modal-backdrop" id="syncModal" onclick="if(event.target===this) closeSyncModal()">
+    <div class="modal-box">
+      <h3>☁ GitHub Gist 同期設定</h3>
+      <div class="modal-field">
+        <label>Gist ID（GistのURL末尾の英数字）</label>
+        <input type="text" id="gistIdInput" placeholder="例: a1b2c3d4e5f6...">
+      </div>
+      <div class="modal-field">
+        <label>GitHub Personal Access Token（gist権限のみ）</label>
+        <input type="password" id="gistTokenInput" placeholder="ghp_... または github_pat_...">
+      </div>
+      <div class="modal-field">
+        <label>Gist内のファイル名</label>
+        <input type="text" id="gistFilenameInput" placeholder="vocab_data.json">
+      </div>
+      <div style="font-size:12px; color:#888; margin-bottom:12px;">
+        ※設定はこの端末のブラウザ（localStorage）にのみ保存されます。
+      </div>
+      <div class="row" style="justify-content:flex-end;">
+        <button onclick="closeSyncModal()">閉じる</button>
+        <button class="primary" onclick="saveSyncConfig()">設定を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const STORAGE_KEY = 'vocab_master_v2';
+    const SYNC_CONFIG_KEY = 'vocab_gist_config_v1';
+
+    let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"decks":[],"currentDeckId":null,"updatedAt":0}');
+    if (typeof state.updatedAt !== 'number') state.updatedAt = 0;
+
+    let syncConfig = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY) || '{"gistId":"","token":"","filename":"vocab_data.json"}');
+    let isDirty = false;
+
+    let currentScopeId = 'ALL'; // 'ALL' or subgroup.id
+    let currentMode = 'unclassified';
+    let queue = [];
+    let currentIndex = 0;
+    let historyStack = []; // { index, wordId, prevStatus, choice }
+    let showMeaning = false;
+    let ctrlPressedAlone = false;
+    let mobileMenuOpen = false;
+    let suppressClickUntil = 0;
+
+    function showToast(msg, duration = 2200) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.remove('show'), duration);
+    }
+
+    function updateSyncButtons() {
+      const label = isDirty ? '☁保存*' : '☁保存';
+      ['pcPushBtn', 'spPushBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = label;
+        el.classList.toggle('dirty', isDirty);
+      });
+    }
+
+    function save(markDirty = true) {
+      if (markDirty) {
+        state.updatedAt = Date.now();
+        isDirty = true;
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      updateSyncButtons();
+    }
+
+    function getDeck() {
+      return state.decks.find(d => d.id === state.currentDeckId) || null;
+    }
+
+    function getScopeWords() {
+      const deck = getDeck();
+      if (!deck) return [];
+      if (currentScopeId === 'ALL') return deck.words;
+      const sg = deck.subgroups.find(s => s.id === currentScopeId);
+      if (!sg) return deck.words;
+      const idSet = new Set(sg.wordIds);
+      return deck.words.filter(w => idSet.has(w.id));
+    }
+
+    function updateMobileMenuLabel() {
+      const btn = document.getElementById('mobileMenuToggle');
+      if (!btn) return;
+      const deck = getDeck();
+      const arrow = mobileMenuOpen ? '▲' : '▼';
+      if (!deck) {
+        btn.textContent = `${arrow} 単語帳を取り込む`;
+        return;
+      }
+      const scopeName = currentScopeId === 'ALL'
+        ? '全体'
+        : (deck.subgroups.find(s => s.id === currentScopeId)?.name || '全体');
+      btn.textContent = `${arrow} ${deck.name} / ${scopeName}`;
+    }
+
+    function toggleMobileMenu(forceState) {
+      mobileMenuOpen = typeof forceState === 'boolean' ? forceState : !mobileMenuOpen;
+      document.getElementById('mobileMenuContainer').classList.toggle('open', mobileMenuOpen);
+      updateMobileMenuLabel();
+    }
+
+    // ダブルクォート対応CSVパーサー
+    function parseCSV(text) {
+      const rows = [];
+      let row = [], cur = '', inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i], next = text[i + 1];
+        if (inQuotes) {
+          if (ch === '"' && next === '"') { cur += '"'; i++; }
+          else if (ch === '"') inQuotes = false;
+          else cur += ch;
+        } else {
+          if (ch === '"') inQuotes = true;
+          else if (ch === ',') { row.push(cur.trim()); cur = ''; }
+          else if (ch === '\n' || ch === '\r') {
+            if (ch === '\r' && next === '\n') i++;
+            row.push(cur.trim());
+            if (row.some(c => c !== '')) rows.push(row);
+            row = []; cur = '';
+          } else cur += ch;
+        }
+      }
+      if (cur !== '' || row.length > 0) {
+        row.push(cur.trim());
+        if (row.some(c => c !== '')) rows.push(row);
+      }
+      return rows;
+    }
+
+    function importCSV() {
+      const fileInput = document.getElementById('csvFile');
+      const file = fileInput.files[0];
+      if (!file) return alert('CSVファイルを選択してください');
+      const name = document.getElementById('deckName').value.trim() || file.name.replace(/\.csv$/i, '');
+      const encoding = document.getElementById('encodingSelect').value;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const rows = parseCSV(e.target.result);
+        const words = rows.map((cols, idx) => ({
+          id: idx,
+          word: cols[0] || '',
+          meaning: cols.slice(1).join(', '),
+          status: 'unclassified'
+        })).filter(w => w.word);
+
+        if (words.length === 0) return alert('有効な単語データが見つかりませんでした');
+
+        const newDeck = { id: 'deck_' + Date.now(), name, words, subgroups: [] };
+        state.decks.push(newDeck);
+        state.currentDeckId = newDeck.id;
+        currentScopeId = 'ALL';
+        save();
+
+        document.getElementById('deckName').value = '';
+        fileInput.value = '';
+        document.getElementById('importDetails').open = false;
+        toggleMobileMenu(false);
+        renderAll();
+        startSession('unclassified');
+      };
+      reader.readAsText(file, encoding);
+    }
+
+    function selectDeck(deckId) {
+      state.currentDeckId = deckId;
+      currentScopeId = 'ALL';
+      save(false);
+      renderAll();
+      startSession('unclassified');
+    }
+
+    function deleteCurrentDeck() {
+      const deck = getDeck();
+      if (!deck) return;
+      if (!confirm(`「${deck.name}」を削除しますか？`)) return;
+      state.decks = state.decks.filter(d => d.id !== deck.id);
+      state.currentDeckId = state.decks[0]?.id || null;
+      currentScopeId = 'ALL';
+      save();
+      renderAll();
+      if (getDeck()) startSession('unclassified');
+    }
+
+    function createRandomSubgroups() {
+      const deck = getDeck();
+      if (!deck) return;
+      const n = parseInt(document.getElementById('splitCount').value, 10);
+      const prefix = document.getElementById('splitPrefix').value.trim() || 'Set';
+      if (isNaN(n) || n < 2) return alert('2以上の分割数を指定してください');
+
+      const ids = shuffle(deck.words.map(w => w.id));
+      const subgroups = [];
+      for (let i = 0; i < n; i++) {
+        subgroups.push({ id: 'sg_' + Date.now() + '_' + i, name: `${prefix} ${i + 1}`, wordIds: [] });
+      }
+      ids.forEach((id, idx) => subgroups[idx % n].wordIds.push(id));
+
+      deck.subgroups = subgroups;
+      currentScopeId = subgroups[0].id;
+      save();
+      renderAll();
+      startSession('unclassified');
+    }
+
+    function renameSubgroup(e, sgId) {
+      e.stopPropagation();
+      const deck = getDeck();
+      const sg = deck?.subgroups.find(s => s.id === sgId);
+      if (!sg) return;
+      const newName = prompt('新しいサブグループ名:', sg.name);
+      if (newName && newName.trim()) {
+        sg.name = newName.trim();
+        save();
+        renderScopeChips();
+        updateMobileMenuLabel();
+      }
+    }
+
+    function clearSubgroups() {
+      const deck = getDeck();
+      if (!deck || deck.subgroups.length === 0) return;
+      if (!confirm('サブグループ分けを解除しますか？（単語の正答状態は維持されます）')) return;
+      deck.subgroups = [];
+      currentScopeId = 'ALL';
+      save();
+      renderAll();
+      startSession('unclassified');
+    }
+
+    function selectScope(scopeId) {
+      currentScopeId = scopeId;
+      renderScopeChips();
+      updateMobileMenuLabel();
+      startSession('unclassified');
+    }
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function startSession(mode, customList = null) {
+      currentMode = mode;
+      let target;
+      if (customList) {
+        target = customList;
+      } else {
+        const words = getScopeWords();
+        target = words;
+        if (mode === 'unclassified') target = words.filter(w => w.status === 'unclassified');
+        else if (mode === 'ng') target = words.filter(w => w.status === 'ng');
+      }
+
+      queue = shuffle(target);
+      currentIndex = 0;
+      historyStack = [];
+      updateModeButtons();
+      renderCard();
+    }
+
+    function retrySessionNg(e) {
+      if (e) e.stopPropagation();
+      const deck = getDeck();
+      if (!deck) return;
+      const ngIds = new Set(historyStack.filter(h => h.choice === 'ng').map(h => h.wordId));
+      const ngWords = deck.words.filter(w => ngIds.has(w.id));
+      if (ngWords.length > 0) {
+        startSession('session_ng', ngWords);
+      }
+    }
+
+    function updateModeButtons() {
+      ['unclassified', 'ng', 'all'].forEach(m => {
+        const btn = document.getElementById('btn-' + m);
+        if (btn) btn.classList.toggle('active', currentMode === m);
+      });
+    }
+
+    function renderCard() {
+      updateStats();
+      const wordEl = document.getElementById('word');
+      const meaningEl = document.getElementById('meaning');
+      const statusEl = document.getElementById('cardStatus');
+      const retryWrap = document.getElementById('retryWrap');
+      showMeaning = false;
+      meaningEl.classList.add('hidden');
+      retryWrap.innerHTML = '';
+
+      if (queue.length === 0) {
+        wordEl.textContent = '該当する単語はありません';
+        meaningEl.textContent = '';
+        statusEl.innerHTML = '';
+        return;
+      }
+
+      if (currentIndex >= queue.length) {
+        const sessionOk = historyStack.filter(h => h.choice === 'ok').length;
+        const sessionNg = historyStack.filter(h => h.choice === 'ng').length;
+        wordEl.textContent = sessionNg === 0 ? '全問クリア！' : 'この周回は完了しました';
+        meaningEl.textContent = `今回の結果： 出来る ${sessionOk}語 ／ 出来ない ${sessionNg}語`;
+        meaningEl.classList.remove('hidden');
+        statusEl.innerHTML = '';
+        if (sessionNg > 0) {
+          retryWrap.innerHTML = `<button class="retry-btn" onclick="retrySessionNg(event)">今回「出来ない」だった ${sessionNg}語 だけもう1回やる</button>`;
+        }
+        return;
+      }
+
+      const item = queue[currentIndex];
+      wordEl.textContent = item.word;
+      meaningEl.textContent = item.meaning;
+      const labelMap = { unclassified: ['未分類', 'b-un'], ok: ['出来る', 'b-ok'], ng: ['出来ない (ロック中)', 'b-ng'] };
+      const [txt, cls] = labelMap[item.status];
+      statusEl.innerHTML = `<span class="badge ${cls}">${txt}</span>`;
+    }
+
+    function handleCardClick() {
+      if (Date.now() < suppressClickUntil) return;
+      toggleAnswer();
+    }
+
+    function toggleAnswer() {
+      if (currentIndex >= queue.length) return;
+      showMeaning = !showMeaning;
+      document.getElementById('meaning').classList.toggle('hidden', !showMeaning);
+    }
+
+    function mark(choice) {
+      if (currentIndex >= queue.length) return;
+      const item = queue[currentIndex];
+      const prevStatus = item.status;
+
+      // 永続ステータス更新ルール：一度 'ng' になったらリセットまでロック
+      if (choice === 'ng') {
+        item.status = 'ng';
+      } else if (choice === 'ok' && item.status !== 'ng') {
+        item.status = 'ok';
+      }
+
+      historyStack.push({ index: currentIndex, wordId: item.id, prevStatus, choice });
+      save();
+      currentIndex++;
+      renderCard();
+    }
+
+    function undo() {
+      if (historyStack.length === 0) return;
+      const last = historyStack.pop();
+      const deck = getDeck();
+      const word = deck?.words.find(w => w.id === last.wordId);
+      if (word) word.status = last.prevStatus;
+      currentIndex = last.index;
+      save();
+      renderCard();
+    }
+
+    function resetScopeLabels() {
+      const words = getScopeWords();
+      if (words.length === 0) return;
+      const scopeName = currentScopeId === 'ALL' ? '全体' : (getDeck().subgroups.find(s => s.id === currentScopeId)?.name || '');
+      if (!confirm(`「${scopeName}」の${words.length}語をすべて「未分類」に戻しますか？`)) return;
+      words.forEach(w => w.status = 'unclassified');
+      save();
+      startSession('unclassified');
+    }
+
+    function updateStats() {
+      const words = getScopeWords();
+      const ok = words.filter(w => w.status === 'ok').length;
+      const ng = words.filter(w => w.status === 'ng').length;
+      const un = words.filter(w => w.status === 'unclassified').length;
+      const sOk = historyStack.filter(h => h.choice === 'ok').length;
+      const sNg = historyStack.filter(h => h.choice === 'ng').length;
+      const prog = queue.length ? `${Math.min(currentIndex + 1, queue.length)} / ${queue.length}` : '0 / 0';
+      const modeLabel = currentMode === 'session_ng' ? ' [周回内NGのみ]' : '';
+      document.getElementById('statsBar').innerHTML = `
+        <div>範囲合計 ${words.length}語：
+          <span class="badge b-ok">出来る ${ok}</span>
+          <span class="badge b-ng">出来ない ${ng}</span>
+          <span class="badge b-un">未分類 ${un}</span>
+        </div>
+        <div>進行${modeLabel}: <b>${prog}</b> (今回 ○${sOk} / ×${sNg})</div>
+      `;
+    }
+
+    function renderDeckSelect() {
+      const sel = document.getElementById('deckSelect');
+      sel.innerHTML = '';
+      if (state.decks.length === 0) {
+        sel.innerHTML = '<option value="">（単語帳なし）</option>';
+        document.getElementById('importDetails').open = true;
+        return;
+      }
+      state.decks.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.words.length}語)`;
+        if (d.id === state.currentDeckId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    function renderScopeChips() {
+      const deck = getDeck();
+      const container = document.getElementById('scopeChips');
+      container.innerHTML = '';
+      if (!deck) return;
+
+      const allChip = document.createElement('div');
+      allChip.className = 'sub-chip' + (currentScopeId === 'ALL' ? ' selected' : '');
+      allChip.textContent = `全体 (${deck.words.length})`;
+      allChip.onclick = () => selectScope('ALL');
+      container.appendChild(allChip);
+
+      deck.subgroups.forEach(sg => {
+        const chip = document.createElement('div');
+        chip.className = 'sub-chip' + (currentScopeId === sg.id ? ' selected' : '');
+        chip.innerHTML = `<span>${sg.name} (${sg.wordIds.length})</span><span class="edit" title="名前変更">✎</span>`;
+        chip.onclick = () => selectScope(sg.id);
+        chip.querySelector('.edit').onclick = (e) => renameSubgroup(e, sg.id);
+        container.appendChild(chip);
+      });
+    }
+
+    function renderAll() {
+      renderDeckSelect();
+      const hasDeck = !!getDeck();
+      document.getElementById('subgroupPanel').style.display = hasDeck ? 'block' : 'none';
+      document.getElementById('studyPanel').style.display = hasDeck ? 'block' : 'none';
+      if (hasDeck) renderScopeChips();
+      else toggleMobileMenu(true);
+      updateMobileMenuLabel();
+      updateSyncButtons();
+    }
+
+    function exportBackup() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `vocab_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    }
+
+    function importBackup(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.target.result);
+          if (!Array.isArray(parsed.decks)) throw new Error();
+          state = parsed;
+          if (typeof state.updatedAt !== 'number') state.updatedAt = Date.now();
+          currentScopeId = 'ALL';
+          save();
+          renderAll();
+          if (getDeck()) startSession('unclassified');
+          alert('復元しました');
+        } catch {
+          alert('バックアップファイルの形式が不正です');
+        }
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
+
+    // ===== GitHub Gist 同期機能 =====
+    function openSyncModal() {
+      document.getElementById('gistIdInput').value = syncConfig.gistId || '';
+      document.getElementById('gistTokenInput').value = syncConfig.token || '';
+      document.getElementById('gistFilenameInput').value = syncConfig.filename || 'vocab_data.json';
+      document.getElementById('syncModal').classList.add('open');
+    }
+
+    function closeSyncModal() {
+      document.getElementById('syncModal').classList.remove('open');
+    }
+
+    function saveSyncConfig() {
+      syncConfig = {
+        gistId: document.getElementById('gistIdInput').value.trim(),
+        token: document.getElementById('gistTokenInput').value.trim(),
+        filename: document.getElementById('gistFilenameInput').value.trim() || 'vocab_data.json'
+      };
+      localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(syncConfig));
+      closeSyncModal();
+      showToast('同期設定を保存しました');
+    }
+
+    function hasSyncConfig() {
+      return !!(syncConfig.gistId && syncConfig.token);
+    }
+
+    async function fetchRemoteState() {
+      const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}?t=${Date.now()}`, {
+        headers: {
+          'Authorization': `token ${syncConfig.token}`,
+          'Accept': 'application/vnd.github+json'
+        },
+        cache: 'no-store'
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const file = data.files?.[syncConfig.filename];
+      if (!file) return null;
+      let content = file.content;
+      if (file.truncated && file.raw_url) {
+        const rawRes = await fetch(file.raw_url, { cache: 'no-store' });
+        content = await rawRes.text();
+      }
+      try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed.decks)) return null;
+        if (typeof parsed.updatedAt !== 'number') parsed.updatedAt = 0;
+        return parsed;
+      } catch {
+        return null;
+      }
+    }
+
+    async function pullFromGist(manual = false) {
+      if (!hasSyncConfig()) {
+        if (manual) openSyncModal();
+        return;
+      }
+      try {
+        if (manual) showToast('☁ 読み込み中...');
+        const remote = await fetchRemoteState();
+        if (!remote) {
+          if (manual) showToast('Gistに有効なデータがまだありません');
+          return;
+        }
+
+        if (!manual) {
+          // 自動Pull：リモートの方が新しい場合のみ反映
+          if (remote.updatedAt > state.updatedAt) {
+            state = remote;
+            currentScopeId = 'ALL';
+            isDirty = false;
+            save(false);
+            renderAll();
+            if (getDeck()) startSession('unclassified');
+            showToast('☁ クラウドの最新データを読み込みました');
+          }
+          return;
+        }
+
+        // 手動Pull
+        if (isDirty && !confirm('この端末に未保存の変更があります。クラウドのデータで上書きしますか？')) {
+          return;
+        }
+        state = remote;
+        currentScopeId = 'ALL';
+        isDirty = false;
+        save(false);
+        renderAll();
+        if (getDeck()) startSession('unclassified');
+        showToast('☁ 読み込み完了');
+      } catch (err) {
+        if (manual) alert(`読み込みに失敗しました: ${err.message}\n設定（Gist ID / Token）を確認してください。`);
+      }
+    }
+
+    async function pushToGist() {
+      if (!hasSyncConfig()) {
+        openSyncModal();
+        return;
+      }
+      try {
+        showToast('☁ 保存中...');
+        const remote = await fetchRemoteState();
+        if (remote && remote.updatedAt > state.updatedAt) {
+          const ok = confirm('クラウド側にこの端末より新しいデータがあります。上書き保存しますか？（キャンセルして「☁読込」を推奨）');
+          if (!ok) return;
+        }
+
+        if (!state.updatedAt) state.updatedAt = Date.now();
+        const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `token ${syncConfig.token}`,
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            files: {
+              [syncConfig.filename]: {
+                content: JSON.stringify(state)
+              }
+            }
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        isDirty = false;
+        save(false);
+        showToast('☁ 保存完了');
+      } catch (err) {
+        alert(`保存に失敗しました: ${err.message}\n設定（Gist ID / Token）を確認してください。`);
+      }
+    }
+
+    // ===== スマホ用スワイプ操作 =====
+    (function initSwipe() {
+      const card = document.getElementById('flashcard');
+      const indicator = document.getElementById('swipeIndicator');
+      let startX = 0, startY = 0, currentDx = 0;
+      let isHorizontal = null;
+      let active = false;
+
+      card.addEventListener('touchstart', (e) => {
+        if (currentIndex >= queue.length || queue.length === 0) return;
+        if (e.touches.length !== 1) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        currentDx = 0;
+        isHorizontal = null;
+        active = true;
+        card.style.transition = 'none';
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e) => {
+        if (!active) return;
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+
+        if (isHorizontal === null) {
+          if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+            isHorizontal = Math.abs(dx) > Math.abs(dy);
+          } else {
+            return;
+          }
+        }
+        if (!isHorizontal) return;
+
+        e.preventDefault();
+        currentDx = dx;
+        const rot = Math.max(-12, Math.min(12, dx * 0.04));
+        card.style.transform = `translateX(${dx}px) rotate(${rot}deg)`;
+
+        if (dx < -30) {
+          card.classList.add('swipe-ng');
+          card.classList.remove('swipe-ok');
+          indicator.textContent = '← 出来ない';
+          indicator.style.color = '#fca5a5';
+          indicator.style.opacity = Math.min(1, Math.abs(dx) / 80);
+        } else if (dx > 30) {
+          card.classList.add('swipe-ok');
+          card.classList.remove('swipe-ng');
+          indicator.textContent = '出来る →';
+          indicator.style.color = '#86efac';
+          indicator.style.opacity = Math.min(1, Math.abs(dx) / 80);
+        } else {
+          card.classList.remove('swipe-ng', 'swipe-ok');
+          indicator.style.opacity = 0;
+        }
+      }, { passive: false });
+
+      function resetCardVisual(animate) {
+        card.classList.remove('swipe-ng', 'swipe-ok');
+        indicator.style.opacity = 0;
+        card.style.transition = animate ? 'transform 0.2s ease' : 'none';
+        card.style.transform = '';
+      }
+
+      card.addEventListener('touchend', () => {
+        if (!active) return;
+        active = false;
+        if (!isHorizontal) return;
+
+        suppressClickUntil = Date.now() + 300;
+        if (currentDx <= -80) {
+          resetCardVisual(false);
+          mark('ng');
+        } else if (currentDx >= 80) {
+          resetCardVisual(false);
+          mark('ok');
+        } else {
+          resetCardVisual(true);
+        }
+      });
+
+      card.addEventListener('touchcancel', () => {
+        if (!active) return;
+        active = false;
+        resetCardVisual(true);
+      });
+    })();
+
+    // ===== PC用キーボード操作（既存のまま一切変更なし） =====
+    document.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+      if (e.key === 'Control') {
+        if (!e.repeat) ctrlPressedAlone = true;
+        return;
+      }
+      ctrlPressedAlone = false;
+
+      if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+        e.preventDefault(); toggleAnswer();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault(); mark('ng');
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault(); mark('ok');
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+      if (e.key === 'Control' && ctrlPressedAlone) {
+        ctrlPressedAlone = false;
+        undo();
+      }
+    });
+
+    renderAll();
+    if (getDeck()) startSession('unclassified');
+    // 起動時にGistから自動チェック（リモートの方が新しければ自動反映）
+    if (hasSyncConfig()) pullFromGist(false);
+  </script>
+</body>
+</html>
