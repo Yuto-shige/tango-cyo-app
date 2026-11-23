@@ -127,7 +127,7 @@
   <!-- スマホ用折りたたみメニューバー（PCでは非表示） -->
   <div class="mobile-menu-bar">
     <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileMenu()">▼ メニュー</button>
-    <button id="spPushBtn" onclick="pushToGist()">☁保存</button>
+    <button id="spPushBtn" onclick="pushToGist(false)">☁保存</button>
     <button id="spPullBtn" onclick="pullFromGist(true)">☁読込</button>
     <button onclick="openSyncModal()" title="Gist同期設定">⚙</button>
   </div>
@@ -141,7 +141,7 @@
         <select id="deckSelect" onchange="selectDeck(this.value)"></select>
         <button class="danger" onclick="deleteCurrentDeck()">削除</button>
         <span style="flex:1"></span>
-        <button id="pcPushBtn" onclick="pushToGist()">☁保存</button>
+        <button id="pcPushBtn" onclick="pushToGist(false)">☁保存</button>
         <button id="pcPullBtn" onclick="pullFromGist(true)">☁読込</button>
         <button onclick="openSyncModal()" title="Gist同期設定">⚙</button>
         <button onclick="exportBackup()">JSON保存</button>
@@ -236,7 +236,7 @@
         <input type="text" id="gistFilenameInput" placeholder="vocab_data.json">
       </div>
       <div style="font-size:12px; color:#888; margin-bottom:12px;">
-        ※設定はこの端末のブラウザ（localStorage）にのみ保存されます。
+        ※設定はこの端末のブラウザ（localStorage）にのみ保存されます。操作停止3秒後に自動保存、画面復帰時に自動読込を行います。
       </div>
       <div class="row" style="justify-content:flex-end;">
         <button onclick="closeSyncModal()">閉じる</button>
@@ -250,12 +250,17 @@
   <script>
     const STORAGE_KEY = 'vocab_master_v2';
     const SYNC_CONFIG_KEY = 'vocab_gist_config_v1';
+    const AUTO_PUSH_DELAY = 3000;
+    const AUTO_PULL_COOLDOWN = 5000;
 
     let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"decks":[],"currentDeckId":null,"updatedAt":0}');
     if (typeof state.updatedAt !== 'number') state.updatedAt = 0;
 
     let syncConfig = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY) || '{"gistId":"","token":"","filename":"vocab_data.json"}');
     let isDirty = false;
+    let isSyncing = false;
+    let autoPushTimer = null;
+    let lastPullCheckAt = 0;
 
     let currentScopeId = 'ALL'; // 'ALL' or subgroup.id
     let currentMode = 'unclassified';
@@ -285,6 +290,15 @@
       });
     }
 
+    function scheduleAutoPush() {
+      if (!hasSyncConfig()) return;
+      clearTimeout(autoPushTimer);
+      autoPushTimer = setTimeout(() => {
+        autoPushTimer = null;
+        pushToGist(true);
+      }, AUTO_PUSH_DELAY);
+    }
+
     function save(markDirty = true) {
       if (markDirty) {
         state.updatedAt = Date.now();
@@ -292,6 +306,7 @@
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       updateSyncButtons();
+      if (markDirty) scheduleAutoPush();
     }
 
     function getDeck() {
@@ -698,7 +713,7 @@
       reader.readAsText(file, 'UTF-8');
     }
 
-    // ===== GitHub Gist 同期機能 =====
+    // ===== GitHub Gist 同期機能（デバウンス自動Push＋画面復帰時自動Pull） =====
     function openSyncModal() {
       document.getElementById('gistIdInput').value = syncConfig.gistId || '';
       document.getElementById('gistTokenInput').value = syncConfig.token || '';
@@ -757,6 +772,11 @@
         if (manual) openSyncModal();
         return;
       }
+      if (isSyncing) return;
+      if (!manual && Date.now() - lastPullCheckAt < AUTO_PULL_COOLDOWN) return;
+
+      isSyncing = true;
+      lastPullCheckAt = Date.now();
       try {
         if (manual) showToast('☁ 読み込み中...');
         const remote = await fetchRemoteState();
@@ -766,8 +786,12 @@
         }
 
         if (!manual) {
-          // 自動Pull：リモートの方が新しい場合のみ反映
+          // 自動Pull：リモートの方が新しい場合のみチェック
           if (remote.updatedAt > state.updatedAt) {
+            if (isDirty) {
+              showToast('⚠ クラウドに新しいデータがあります。「☁読込」で確認してください', 4000);
+              return;
+            }
             state = remote;
             currentScopeId = 'ALL';
             isDirty = false;
@@ -783,6 +807,8 @@
         if (isDirty && !confirm('この端末に未保存の変更があります。クラウドのデータで上書きしますか？')) {
           return;
         }
+        clearTimeout(autoPushTimer);
+        autoPushTimer = null;
         state = remote;
         currentScopeId = 'ALL';
         isDirty = false;
@@ -792,23 +818,45 @@
         showToast('☁ 読み込み完了');
       } catch (err) {
         if (manual) alert(`読み込みに失敗しました: ${err.message}\n設定（Gist ID / Token）を確認してください。`);
+      } finally {
+        isSyncing = false;
       }
     }
 
-    async function pushToGist() {
+    async function pushToGist(isAuto = false) {
       if (!hasSyncConfig()) {
-        openSyncModal();
+        if (!isAuto) openSyncModal();
         return;
       }
+      if (isSyncing) {
+        if (isAuto && isDirty) scheduleAutoPush();
+        return;
+      }
+      if (isAuto && !isDirty) return;
+
+      clearTimeout(autoPushTimer);
+      autoPushTimer = null;
+      isSyncing = true;
+      let shouldReschedule = false;
+
       try {
-        showToast('☁ 保存中...');
+        if (!isAuto) showToast('☁ 保存中...');
         const remote = await fetchRemoteState();
-        if (remote && remote.updatedAt > state.updatedAt) {
+        const currentUpdatedAt = state.updatedAt || Date.now();
+
+        if (remote && remote.updatedAt > currentUpdatedAt) {
+          if (isAuto) {
+            showToast('⚠ クラウドに新しいデータがあります。「☁読込」を押してください', 4000);
+            return;
+          }
           const ok = confirm('クラウド側にこの端末より新しいデータがあります。上書き保存しますか？（キャンセルして「☁読込」を推奨）');
           if (!ok) return;
         }
 
-        if (!state.updatedAt) state.updatedAt = Date.now();
+        const sentUpdatedAt = state.updatedAt || Date.now();
+        state.updatedAt = sentUpdatedAt;
+        const payload = JSON.stringify(state);
+
         const res = await fetch(`https://api.github.com/gists/${syncConfig.gistId}`, {
           method: 'PATCH',
           headers: {
@@ -819,19 +867,42 @@
           body: JSON.stringify({
             files: {
               [syncConfig.filename]: {
-                content: JSON.stringify(state)
+                content: payload
               }
             }
           })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        isDirty = false;
-        save(false);
-        showToast('☁ 保存完了');
+
+        if (state.updatedAt === sentUpdatedAt) {
+          isDirty = false;
+          save(false);
+        } else {
+          // 送信中にさらに操作があった場合は再同期を予約
+          shouldReschedule = true;
+        }
+        showToast(isAuto ? '☁ 自動保存しました' : '☁ 保存完了', isAuto ? 1500 : 2200);
       } catch (err) {
-        alert(`保存に失敗しました: ${err.message}\n設定（Gist ID / Token）を確認してください。`);
+        if (isAuto) {
+          showToast('⚠ 自動保存に失敗しました（未保存）', 3000);
+        } else {
+          alert(`保存に失敗しました: ${err.message}\n設定（Gist ID / Token）を確認してください。`);
+        }
+      } finally {
+        isSyncing = false;
+        if (shouldReschedule) scheduleAutoPush();
       }
     }
+
+    // 画面の非表示（アプリ切替・タブ切替）で即時Push、復帰時に自動Pull
+    document.addEventListener('visibilitychange', () => {
+      if (!hasSyncConfig()) return;
+      if (document.visibilityState === 'hidden') {
+        if (isDirty) pushToGist(true);
+      } else if (document.visibilityState === 'visible') {
+        pullFromGist(false);
+      }
+    });
 
     // ===== スマホ用スワイプ操作 =====
     (function initSwipe() {
