@@ -250,7 +250,7 @@
   <script>
     const STORAGE_KEY = 'vocab_master_v2';
     const SYNC_CONFIG_KEY = 'vocab_gist_config_v1';
-    const AUTO_PUSH_DELAY = 3000;
+    const AUTO_PUSH_DELAY = 60000;
     const AUTO_PULL_COOLDOWN = 5000;
 
     let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"decks":[],"currentDeckId":null,"updatedAt":0}');
@@ -544,6 +544,7 @@
       }
 
       if (currentIndex >= queue.length) {
+        if (isDirty) pushToGist(true);
         const sessionOk = historyStack.filter(h => h.choice === 'ok').length;
         const sessionNg = historyStack.filter(h => h.choice === 'ng').length;
         wordEl.textContent = sessionNg === 0 ? '全問クリア！' : 'この周回は完了しました';
